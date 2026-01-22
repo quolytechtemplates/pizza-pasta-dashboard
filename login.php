@@ -1,4 +1,8 @@
 <?php
+// Enable error reporting for debugging (remove in production)
+error_reporting(E_ALL);
+ini_set('display_errors', 1);
+
 require_once 'config/database.php';
 
 // If already logged in, redirect to dashboard
@@ -18,7 +22,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         $email = sanitize($_POST['email']);
         $password = $_POST['password'];
         
-        $stmt = $conn->prepare("SELECT id, password, full_name FROM users WHERE username = ? AND email = ? AND role = 'admin' AND is_active = TRUE");
+        $stmt = $conn->prepare("SELECT id, password, full_name FROM users WHERE username = ? AND email = ? AND role = 'admin' AND is_active = 1");
         $stmt->bind_param("ss", $username, $email);
         $stmt->execute();
         $result = $stmt->get_result();
@@ -29,7 +33,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 $_SESSION['user_id'] = $user['id'];
                 $_SESSION['role'] = 'admin';
                 $_SESSION['full_name'] = $user['full_name'];
-                logActivity($user['id'], 'Login', 'Admin logged in');
                 redirectToDashboard();
             } else {
                 $error = 'Fjalëkalimi i gabuar!';
@@ -44,7 +47,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         $email = sanitize($_POST['email']);
         $password = $_POST['password'];
         
-        $stmt = $conn->prepare("SELECT id, password, full_name FROM users WHERE email = ? AND role = 'teacher' AND is_active = TRUE");
+        $stmt = $conn->prepare("SELECT id, password, full_name FROM users WHERE email = ? AND role = 'teacher' AND is_active = 1");
         $stmt->bind_param("s", $email);
         $stmt->execute();
         $result = $stmt->get_result();
@@ -55,7 +58,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 $_SESSION['user_id'] = $user['id'];
                 $_SESSION['role'] = 'teacher';
                 $_SESSION['full_name'] = $user['full_name'];
-                logActivity($user['id'], 'Login', 'Teacher logged in');
                 redirectToDashboard();
             } else {
                 $error = 'Fjalëkalimi i gabuar!';
@@ -78,7 +80,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             INNER JOIN parent_student ps ON p.id = ps.parent_id
             INNER JOIN students s ON ps.student_id = s.id
             INNER JOIN users child ON s.user_id = child.id
-            WHERE u.email = ? AND u.role = 'parent' AND child.full_name = ? AND u.is_active = TRUE
+            WHERE u.email = ? AND u.role = 'parent' AND child.full_name = ? AND u.is_active = 1
             LIMIT 1
         ");
         $stmt->bind_param("ss", $email, $child_name);
@@ -91,7 +93,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 $_SESSION['user_id'] = $user['id'];
                 $_SESSION['role'] = 'parent';
                 $_SESSION['full_name'] = $user['full_name'];
-                logActivity($user['id'], 'Login', 'Parent logged in');
                 redirectToDashboard();
             } else {
                 $error = 'Fjalëkalimi i gabuar!';
@@ -102,15 +103,15 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         $stmt->close();
         
     } elseif ($role == 'student') {
-        // Student login: full name + student ID (hashed)
+        // Student login: full name + student ID
         $full_name = sanitize($_POST['full_name']);
-        $student_id = $_POST['student_id'];
+        $student_id = sanitize($_POST['student_id']);
         
         $stmt = $conn->prepare("
-            SELECT u.id, u.full_name, s.student_id 
+            SELECT u.id, u.full_name, s.student_id, s.id as s_id
             FROM users u
             INNER JOIN students s ON u.id = s.user_id
-            WHERE u.full_name = ? AND u.role = 'student' AND u.is_active = TRUE
+            WHERE u.full_name = ? AND u.role = 'student' AND u.is_active = 1
         ");
         $stmt->bind_param("s", $full_name);
         $stmt->execute();
@@ -118,22 +119,12 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         
         if ($result->num_rows == 1) {
             $user = $result->fetch_assoc();
-            // Verify student ID (comparing hashed version)
-            if (password_verify($student_id, password_hash($user['student_id'], PASSWORD_DEFAULT)) || $student_id == $user['student_id']) {
+            // Direct comparison of student ID
+            if ($student_id == $user['student_id']) {
                 $_SESSION['user_id'] = $user['id'];
                 $_SESSION['role'] = 'student';
                 $_SESSION['full_name'] = $user['full_name'];
-                
-                // Get student record ID
-                $stmt2 = $conn->prepare("SELECT id FROM students WHERE user_id = ?");
-                $stmt2->bind_param("i", $user['id']);
-                $stmt2->execute();
-                $student_result = $stmt2->get_result();
-                $student = $student_result->fetch_assoc();
-                $_SESSION['student_id'] = $student['id'];
-                $stmt2->close();
-                
-                logActivity($user['id'], 'Login', 'Student logged in');
+                $_SESSION['student_id'] = $user['s_id'];
                 redirectToDashboard();
             } else {
                 $error = 'ID-ja e studentit e gabuar!';
@@ -331,7 +322,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                             </div>
                             <div class="form-group">
                                 <label><i class="ti ti-id"></i> ID e Studentit</label>
-                                <input type="text" name="student_id" class="form-control" placeholder="Shkruani ID-në tuaj">
+                                <input type="text" name="student_id" class="form-control" placeholder="Shkruani ID-në tuaj (e.g., STU000001)">
                             </div>
                         </div>
                         
